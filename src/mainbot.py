@@ -6,41 +6,20 @@ from datetime import datetime
 import pickle
 import gdata
 from gdata.youtube.service import YouTubeService
+import dateutil.parser
 
-def PrintEntryDetails(entry):
-  print 'Video title: %s' % entry.media.title.text
-  print 'Video published on: %s ' % entry.published.text
-  print 'Video description: %s' % entry.media.description.text
-  print 'Video category: %s' % entry.media.category[0].text
-  print 'Video tags: %s' % entry.media.keywords.text
-  print 'Video watch page: %s' % entry.media.player.url
-  print 'Video flash player URL: %s' % entry.GetSwfUrl()
-  print 'Video duration: %s' % entry.media.duration.seconds
 
-  # non entry.media attributes
-  print 'Video view count: %s' % entry.statistics.view_count
-  if not entry.rating is None:
-      print 'Video rating: %s' % entry.rating.average
-
-  # show alternate formats
-  for alternate_format in entry.media.content:
-    if 'isDefault' not in alternate_format.extension_attributes:
-      print 'Alternate format: %s | url: %s ' % (alternate_format.type,
-                                                 alternate_format.url)
-
-  # show thumbnails
-  for thumbnail in entry.media.thumbnail:
-    print 'Thumbnail url: %s' % thumbnail.url
-    
-def PrintVideoFeed(feed):
-  for entry in feed.entry:
-    PrintEntryDetails(entry)
-    
-
-def GetAndPrintUserUploads(username):
-  yt_service = YouTubeService()
-  uri = 'http://gdata.youtube.com/feeds/api/users/%s/uploads' % username
-  PrintVideoFeed(yt_service.GetYouTubeVideoFeed(uri))
+def GetAndPrintUserUploads(username,date):
+    yt_service = YouTubeService()
+    uri = 'http://gdata.youtube.com/feeds/api/users/%s/uploads' % username
+    feed=yt_service.GetYouTubeVideoFeed(uri)
+    entries=[]
+    for entry in feed.entry:
+        published= dateutil.parser.parse(entry.published.text).astimezone(dateutil.tz.tzlocal())
+        if published > date:
+            entries+=[entry]
+    return entries
+      
   
 cfg_file=MyConfigParser()
 path_to_cfg = os.path.abspath(os.path.dirname(sys.argv[0]))
@@ -54,6 +33,7 @@ r.login(cfg_file.get('reddit', 'username'),
 
 youtubes=cfg_file.getlist("youtube", "channels")
 
+ 
 with open("lastCheck","r") as f:
     lastUpdate=pickle.load(f)
 
@@ -61,9 +41,15 @@ print "Checking youtube for updates since %s" % lastUpdate
 
 for youtube in youtubes:
     print "Checking "+youtube
-    GetAndPrintUserUploads(youtube)
+    results=GetAndPrintUserUploads(youtube,lastUpdate)
+    for result in results:
+        submission=r.submit(cfg_file.get('reddit', 'postSubreddit'), result.media.title.text, url=result.media.player.url)
+        if result.media.description.text:
+            submission.add_comment(result.media.description.text.replace("\r\n","\r\n\r\n"))
     
- 
-    
+
+local_time = datetime.now().replace(tzinfo=dateutil.tz.tzlocal())
 with open("lastCheck","w") as f:
-    pickle.dump(datetime.now(),f)
+    pickle.dump(local_time,f)
+
+    
